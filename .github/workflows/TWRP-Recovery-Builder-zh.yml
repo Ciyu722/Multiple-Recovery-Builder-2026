@@ -7,19 +7,24 @@ on:
       manifest_repo_url:
         description: 'TWRP manifest 仓库地址'
         required: true
-        default: 'https://github.com/minimal-manifest-twrp/platform_manifest_twrp_omni.git'
+        default: 'https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git'
         type: choice
         options:
-          - https://github.com/minimal-manifest-twrp/platform_manifest_twrp_omni.git
           - https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git
+          - https://github.com/minimal-manifest-twrp/platform_manifest_twrp_omni.git
 
       # --- 分支选择（预设 + 自定义）---
       manifest_branch_preset:
         description: '选择常用的 manifest 分支（若选“自定义”，请在下方输入）'
         required: true
-        default: 'twrp-12.1'                     # 改为默认 12.1
+        default: 'twrp-12.1'
         type: choice
         options:
+          # AOSP 仓库常用分支
+          - twrp-14.1
+          - twrp-14
+          - twrp-12.1
+          - twrp-11
           # Omni 仓库常用分支
           - twrp-10.0-deprecated
           - twrp-9.0
@@ -28,11 +33,6 @@ on:
           - twrp-6.0
           - twrp-5.1
           - twrp-4.4-deprecated
-          # AOSP 仓库常用分支
-          - twrp-14.1
-          - twrp-14
-          - twrp-12.1
-          - twrp-11
           # 自定义选项
           - 自定义
 
@@ -43,7 +43,7 @@ on:
 
       # --- 设备树配置 ---
       device_tree_repo_url:
-        description: '设备树 GitHub 仓库地址（例如 https://github.com/你的用户名/android_device_oppo_xxx）'
+        description: '设备树 GitHub 仓库地址'
         required: true
         default: 'https://github.com/rtyutechstudio/android_device_oppo_a32-twrp'
         type: string
@@ -93,6 +93,15 @@ jobs:
           key: ${{ runner.os }}-twrp-${{ github.event.inputs.device_tree_branch }}-${{ github.run_id }}
           max-size: 5G
 
+      - name: 修复 ccache 权限并指定临时目录
+        run: |
+          sudo mkdir -p /home/runner/.ccache/tmp
+          sudo chmod 777 /home/runner/.ccache/tmp
+          # 设置 ccache 临时目录到 /tmp（总是可写）
+          echo "CCACHE_TEMPDIR=/tmp/ccache-tmp" >> $GITHUB_ENV
+          mkdir -p /tmp/ccache-tmp
+          sudo chmod 777 /tmp/ccache-tmp
+
       - name: 确定最终使用的 manifest 分支
         id: manifest_branch
         run: |
@@ -115,7 +124,7 @@ jobs:
           repo init -u "${{ github.event.inputs.manifest_repo_url }}" \
             -b "${{ steps.manifest_branch.outputs.branch }}" --depth=1
 
-      - name: 通过 local manifest 添加自定义设备树（修复 remote 定义）
+      - name: 通过 local manifest 添加自定义设备树
         run: |
           cd twrp
           mkdir -p .repo/local_manifests
@@ -164,13 +173,14 @@ jobs:
           cd twrp
           source build/envsetup.sh
           lunch ${{ github.event.inputs.lunch_target }}
-          # 先执行 make clean 确保干净构建，再编译 recovery
+          # 先执行 make clean 确保干净构建
           make clean
           mka recoveryimage ALLOW_MISSING_DEPENDENCIES=true || mka recoveryimage
         env:
           CCACHE_EXEC: /usr/bin/ccache
           USE_CCACHE: 1
           CCACHE_DIR: /home/runner/.ccache
+          CCACHE_TEMPDIR: /tmp/ccache-tmp
 
       - name: 上传 recovery 镜像
         uses: actions/upload-artifact@v4
