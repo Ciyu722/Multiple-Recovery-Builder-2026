@@ -1,5 +1,4 @@
-name: 自定义 TWRP 编译
-
+name: TWRP - Build
 on:
   workflow_dispatch:
     inputs:
