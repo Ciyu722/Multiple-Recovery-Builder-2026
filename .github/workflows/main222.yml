@@ -1,42 +1,66 @@
-name: TWRP - Build
+name: Custom TWRP Builder (with Branch Selector)
+
 on:
   workflow_dispatch:
     inputs:
-      # --- Manifest 仓库选择 ---
+      # --- Manifest repository selection ---
       manifest_repo_url:
-        description: '选择 TWRP Manifest 仓库'
+        description: 'TWRP manifest repository URL'
         required: true
         default: 'https://github.com/minimal-manifest-twrp/platform_manifest_twrp_omni.git'
         type: choice
         options:
           - https://github.com/minimal-manifest-twrp/platform_manifest_twrp_omni.git
           - https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git
-      manifest_branch:
-        description: 'Manifest 分支 (例如: twrp-10.0-deprecated, twrp-11, twrp-12.1, 或自定义)'
+
+      # --- Branch selection (preset + custom) ---
+      manifest_branch_preset:
+        description: 'Select a common manifest branch (choose "custom" to enter your own)'
         required: true
         default: 'twrp-10.0-deprecated'
-        type: string   # 允许自由输入
+        type: choice
+        options:
+          # Omni repo common branches
+          - twrp-10.0-deprecated
+          - twrp-9.0
+          - twrp-8.1
+          - twrp-7.1
+          - twrp-6.0
+          - twrp-5.1
+          - twrp-4.4-deprecated
+          # AOSP repo common branches
+          - twrp-14.1
+          - twrp-14
+          - twrp-12.1
+          - twrp-11
+          # Custom option
+          - custom
 
-      # --- 设备树配置 ---
+      manifest_branch_custom:
+        description: 'If you selected "custom" above, enter your own branch name here'
+        required: false
+        default: ''
+
+      # --- Device tree configuration ---
       device_tree_repo_url:
-        description: '设备树 GitHub 仓库 URL (例如: https://github.com/simonsmh/android_device_xiaomi_umi)'
+        description: 'Device tree GitHub repository URL'
         required: true
         default: 'https://github.com/simonsmh/android_device_xiaomi_umi'
         type: string
       device_tree_branch:
-        description: '设备树分支 (例如: android-11.0-new, main)'
+        description: 'Device tree branch'
         required: true
         default: 'android-11.0-new'
         type: string
       device_tree_path:
-        description: '设备树在源码中的路径 (例如: device/xiaomi/umi)'
+        description: 'Path where the device tree will be placed in the source tree'
         required: true
         default: 'device/xiaomi/umi'
         type: string
 
-      # --- 编译目标 ---
+      # --- Build target ---
       lunch_target:
-        description: 'lunch 目标 (例如: omni_umi-eng)'
+        description: 'lunch target (e.g., omni_umi-eng)'
         required: true
         default: 'omni_umi-eng'
         type: string
@@ -47,10 +71,10 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: 检出仓库 (用于保存工作流自身)
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: 准备编译环境
+      - name: Prepare build environment
         run: |
           sudo apt update
           sudo apt install -y git-core gnupg flex bison build-essential zip curl zlib1g-dev \
@@ -60,24 +84,38 @@ jobs:
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
 
-      - name: 设置 ccache (基于设备树分支做缓存)
+      - name: Set up ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
           key: ${{ runner.os }}-twrp-${{ github.event.inputs.device_tree_branch }}-${{ github.run_id }}
           max-size: 5G
 
-      - name: 初始化 Repo (使用自定义 Manifest 仓库和分支)
+      - name: Determine final manifest branch
+        id: manifest_branch
+        run: |
+          if [[ "${{ github.event.inputs.manifest_branch_preset }}" == "custom" ]]; then
+            BRANCH="${{ github.event.inputs.manifest_branch_custom }}"
+            if [[ -z "$BRANCH" ]]; then
+              echo "Error: 'custom' selected but no custom branch provided."
+              exit 1
+            fi
+          else
+            BRANCH="${{ github.event.inputs.manifest_branch_preset }}"
+          fi
+          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+          echo "Using manifest branch: $BRANCH"
+
+      - name: Initialize repo
         run: |
           mkdir -p twrp
           cd twrp
           repo init -u "${{ github.event.inputs.manifest_repo_url }}" \
-            -b "${{ github.event.inputs.manifest_branch }}" --depth=1
+            -b "${{ steps.manifest_branch.outputs.branch }}" --depth=1
 
-      - name: 添加自定义设备树到 Local Manifest
+      - name: Add custom device tree via local manifest
         run: |
           cd twrp
           mkdir -p .repo/local_manifests
-          # 从输入的 URL 中提取仓库名称 (例如: android_device_xiaomi_umi)
           REPO_NAME=$(basename "${{ github.event.inputs.device_tree_repo_url }}" .git)
           cat > .repo/local_manifests/custom_device.xml << EOF
           <?xml version="1.0" encoding="UTF-8"?>
@@ -88,27 +126,25 @@ jobs:
                      revision="${{ github.event.inputs.device_tree_branch }}" />
           </manifest>
           EOF
-          # 添加自定义远程仓库
           git config -f .repo/manifests/.git/config --add remote.custom.url "${{ github.event.inputs.device_tree_repo_url }}"
 
-      - name: 同步源码
+      - name: Sync source
         run: |
           cd twrp
           repo sync --force-sync --no-tags --no-clone-bundle -j$(nproc)
 
-      - name: 编译 Recovery 镜像
+      - name: Build recovery image
         run: |
           cd twrp
           source build/envsetup.sh
           lunch ${{ github.event.inputs.lunch_target }}
-          # 增加一个安全回退：如果 ALLOW_MISSING_DEPENDENCIES=true 失败，则尝试不带该参数
           mka recoveryimage ALLOW_MISSING_DEPENDENCIES=true || mka recoveryimage
         env:
           CCACHE_EXEC: /usr/bin/ccache
           USE_CCACHE: 1
           CCACHE_DIR: /home/runner/.ccache
 
-      - name: 上传 Recovery 镜像
+      - name: Upload recovery image
         uses: actions/upload-artifact@v4
         with:
           name: twrp-${{ github.event.inputs.device_tree_branch }}-${{ github.sha }}
