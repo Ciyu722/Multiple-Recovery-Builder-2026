@@ -53,7 +53,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-20.04   # 旧版 Android 编译推荐 20.04，包含旧版 lib 和工具
+    runs-on: ubuntu-22.04   # 旧版 Android 编译推荐 20.04，包含旧版 lib 和工具
     timeout-minutes: 360
 
     steps:
