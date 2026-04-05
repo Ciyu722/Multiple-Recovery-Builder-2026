@@ -1,4 +1,4 @@
-name: TWRP - Build
+name: TWRP - Build 
 
 on:
   workflow_dispatch:
@@ -58,6 +58,12 @@ on:
         default: 'twrp_PDVM00-eng'
         type: string
 
+      build_vendor_boot:
+        description: '是否编译 vendor_boot 镜像 (make vendorbootimage)'
+        required: true
+        default: false
+        type: boolean
+
 jobs:
   build:
     runs-on: ubuntu-22.04
@@ -79,9 +85,6 @@ jobs:
 
       - name: 清理磁盘空间
         uses: rokibhasansagar/slimhub_actions@main
-
-      # 注意：此处移除了 ccache 设置，改为编译时直接禁用
-      # 如需启用 ccache，需解决只读文件系统问题，但当前先禁用
 
       - name: 确定最终使用的 manifest 分支
         id: manifest_branch
@@ -147,14 +150,29 @@ jobs:
           source build/envsetup.sh
           lunch ${{ github.event.inputs.lunch_target }}
           make clean
-          # 强制禁用 ccache
           export USE_CCACHE=0
           mka recoveryimage ALLOW_MISSING_DEPENDENCIES=true || mka recoveryimage
-        # 不再传递 ccache 相关环境变量
+
+      - name: 编译 vendor_boot 镜像（如果启用）
+        if: github.event.inputs.build_vendor_boot == 'true'
+        run: |
+          cd twrp
+          source build/envsetup.sh
+          lunch ${{ github.event.inputs.lunch_target }}
+          export USE_CCACHE=0
+          mka vendorbootimage ALLOW_MISSING_DEPENDENCIES=true || mka vendorbootimage
 
       - name: 上传 recovery 镜像
         uses: actions/upload-artifact@v4
         with:
-          name: twrp-${{ github.event.inputs.device_tree_branch }}-${{ github.sha }}
+          name: twrp-recovery-${{ github.event.inputs.device_tree_branch }}-${{ github.sha }}
           path: twrp/out/target/product/*/recovery.img
+          if-no-files-found: error
+
+      - name: 上传 vendor_boot 镜像（如果启用）
+        if: github.event.inputs.build_vendor_boot == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: twrp-vendor_boot-${{ github.event.inputs.device_tree_branch }}-${{ github.sha }}
+          path: twrp/out/target/product/*/vendor_boot.img
           if-no-files-found: error
