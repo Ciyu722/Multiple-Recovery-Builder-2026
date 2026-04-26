@@ -1,4 +1,4 @@
-name: TWRP - Build 
+name: TWRP - Build
 
 on:
   workflow_dispatch:
@@ -57,6 +57,13 @@ on:
         required: true
         default: 'twrp_PDVM00-eng'
         type: string
+
+      # ============ 新增加的选项 ============
+      build_recovery_image:
+        description: '是否编译 recovery 镜像 (make recoveryimage)'
+        required: true
+        default: true
+        type: boolean
 
       build_vendor_boot:
         description: '是否编译 vendor_boot 镜像 (make vendorbootimage)'
@@ -144,32 +151,38 @@ jobs:
           cd twrp
           repo sync --force-sync --no-tags --no-clone-bundle -j$(nproc)
 
-      - name: 编译 recovery 镜像（禁用 ccache）
+      # 编译 recovery（只有勾选时才执行）
+      - name: 编译 recovery 镜像
+        if: github.event.inputs.build_recovery_image == 'true'
         run: |
           cd twrp
           source build/envsetup.sh
           lunch ${{ github.event.inputs.lunch_target }}
           make clean
           export USE_CCACHE=0
-          mka recoveryimage ALLOW_MISSING_DEPENDENCIES=true || mka recoveryimage
+          mka recoveryimage ALLOW_MISSING_DEPENDENCIES=true
 
-      - name: 编译 vendor_boot 镜像（如果启用）
+      # 编译 vendor_boot（只有勾选时才执行）
+      - name: 编译 vendor_boot 镜像
         if: github.event.inputs.build_vendor_boot == 'true'
         run: |
           cd twrp
           source build/envsetup.sh
           lunch ${{ github.event.inputs.lunch_target }}
           export USE_CCACHE=0
-          mka vendorbootimage ALLOW_MISSING_DEPENDENCIES=true || mka vendorbootimage
+          mka vendorbootimage ALLOW_MISSING_DEPENDENCIES=true
 
+      # 上传 recovery（只有勾选时才上传）
       - name: 上传 recovery 镜像
+        if: github.event.inputs.build_recovery_image == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: twrp-recovery-${{ github.event.inputs.device_tree_branch }}-${{ github.sha }}
           path: twrp/out/target/product/*/recovery.img
           if-no-files-found: error
 
-      - name: 上传 vendor_boot 镜像（如果启用）
+      # 上传 vendor_boot（只有勾选时才上传）
+      - name: 上传 vendor_boot 镜像
         if: github.event.inputs.build_vendor_boot == 'true'
         uses: actions/upload-artifact@v4
         with:
