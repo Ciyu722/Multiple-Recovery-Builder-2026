@@ -58,23 +58,22 @@ on:
         default: 'twrp_PDVM00-eng'
         type: string
 
-      # ============ 镜像编译选项 ============
-      build_recovery_image:
-        description: '是否编译 recovery 镜像 (make recoveryimage)'
+      # ============ 镜像编译选项（三选一） ============
+      build_target:
+        description: '请选择要编译的镜像（三个只能选一个）'
+        required: true
+        default: 'recovery'
+        type: choice
+        options:
+          - recovery
+          - vendor_boot
+          - boot
+
+      # ============ ZIP 刷机包上传选项 ============
+      upload_zip:
+        description: '是否上传 ZIP 刷机包（默认上传）'
         required: true
         default: true
-        type: boolean
-
-      build_vendor_boot:
-        description: '是否编译 vendor_boot 镜像 (make vendorbootimage)'
-        required: true
-        default: false
-        type: boolean
-
-      build_boot_image:
-        description: '是否编译 boot 镜像 (make bootimage)'
-        required: true
-        default: false
         type: boolean
 
 jobs:
@@ -157,9 +156,19 @@ jobs:
           cd twrp
           repo sync --force-sync --no-tags --no-clone-bundle -j$(nproc)
 
-      # 编译 recovery（只有勾选时才执行）
+      # 通用环境准备函数（用于每个编译步骤）
+      - name: 设置编译环境
+        id: setup_env
+        run: |
+          cd twrp
+          source build/envsetup.sh
+          lunch ${{ github.event.inputs.lunch_target }}
+          echo "lunch done"
+          # 将 lunch 后的环境变量保存到当前 shell（后续步骤需重新 source，单独处理）
+
+      # 编译 recovery（当 build_target == recovery 时）
       - name: 编译 recovery 镜像
-        if: github.event.inputs.build_recovery_image == 'true'
+        if: github.event.inputs.build_target == 'recovery'
         run: |
           cd twrp
           source build/envsetup.sh
@@ -168,9 +177,9 @@ jobs:
           export USE_CCACHE=0
           mka recoveryimage ALLOW_MISSING_DEPENDENCIES=true
 
-      # 编译 vendor_boot（只有勾选时才执行）
+      # 编译 vendor_boot（当 build_target == vendor_boot 时）
       - name: 编译 vendor_boot 镜像
-        if: github.event.inputs.build_vendor_boot == 'true'
+        if: github.event.inputs.build_target == 'vendor_boot'
         run: |
           cd twrp
           source build/envsetup.sh
@@ -178,9 +187,9 @@ jobs:
           export USE_CCACHE=0
           mka vendorbootimage ALLOW_MISSING_DEPENDENCIES=true
 
-      # 编译 boot（只有勾选时才执行）
+      # 编译 boot（当 build_target == boot 时）
       - name: 编译 boot 镜像
-        if: github.event.inputs.build_boot_image == 'true'
+        if: github.event.inputs.build_target == 'boot'
         run: |
           cd twrp
           source build/envsetup.sh
@@ -188,35 +197,34 @@ jobs:
           export USE_CCACHE=0
           mka bootimage ALLOW_MISSING_DEPENDENCIES=true
 
-      # 上传 recovery（只有勾选时才上传）
+      # 上传编译出的 IMG（根据 build_target 上传对应的文件）
       - name: 上传 recovery 镜像
-        if: github.event.inputs.build_recovery_image == 'true'
+        if: github.event.inputs.build_target == 'recovery'
         uses: actions/upload-artifact@v4
         with:
           name: twrp-recovery-${{ github.event.inputs.device_tree_branch }}-${{ github.sha }}
           path: twrp/out/target/product/*/recovery.img
           if-no-files-found: error
 
-      # 上传 vendor_boot（只有勾选时才上传）
       - name: 上传 vendor_boot 镜像
-        if: github.event.inputs.build_vendor_boot == 'true'
+        if: github.event.inputs.build_target == 'vendor_boot'
         uses: actions/upload-artifact@v4
         with:
           name: twrp-vendor_boot-${{ github.event.inputs.device_tree_branch }}-${{ github.sha }}
           path: twrp/out/target/product/*/vendor_boot.img
           if-no-files-found: error
 
-      # 上传 boot（只有勾选时才上传）
       - name: 上传 boot 镜像
-        if: github.event.inputs.build_boot_image == 'true'
+        if: github.event.inputs.build_target == 'boot'
         uses: actions/upload-artifact@v4
         with:
           name: twrp-boot-${{ github.event.inputs.device_tree_branch }}-${{ github.sha }}
           path: twrp/out/target/product/*/boot.img
           if-no-files-found: error
 
-      # 上传刷机包 zip（无论勾选哪个，只要 zip 存在就上传）
+      # 上传 ZIP 刷机包（如果 upload_zip 为 true）
       - name: 上传刷机包 (ZIP)
+        if: github.event.inputs.upload_zip == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: twrp-flashable-${{ github.event.inputs.device_tree_branch }}-${{ github.sha }}
