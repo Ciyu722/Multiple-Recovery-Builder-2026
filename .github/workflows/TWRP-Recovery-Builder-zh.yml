@@ -58,7 +58,7 @@ on:
         default: 'twrp_PDVM00-eng'
         type: string
 
-      # ============ 新增加的选项 ============
+      # ============ 镜像编译选项 ============
       build_recovery_image:
         description: '是否编译 recovery 镜像 (make recoveryimage)'
         required: true
@@ -67,6 +67,12 @@ on:
 
       build_vendor_boot:
         description: '是否编译 vendor_boot 镜像 (make vendorbootimage)'
+        required: true
+        default: false
+        type: boolean
+
+      build_boot_image:
+        description: '是否编译 boot 镜像 (make bootimage)'
         required: true
         default: false
         type: boolean
@@ -172,6 +178,16 @@ jobs:
           export USE_CCACHE=0
           mka vendorbootimage ALLOW_MISSING_DEPENDENCIES=true
 
+      # 编译 boot（只有勾选时才执行）
+      - name: 编译 boot 镜像
+        if: github.event.inputs.build_boot_image == 'true'
+        run: |
+          cd twrp
+          source build/envsetup.sh
+          lunch ${{ github.event.inputs.lunch_target }}
+          export USE_CCACHE=0
+          mka bootimage ALLOW_MISSING_DEPENDENCIES=true
+
       # 上传 recovery（只有勾选时才上传）
       - name: 上传 recovery 镜像
         if: github.event.inputs.build_recovery_image == 'true'
@@ -189,3 +205,20 @@ jobs:
           name: twrp-vendor_boot-${{ github.event.inputs.device_tree_branch }}-${{ github.sha }}
           path: twrp/out/target/product/*/vendor_boot.img
           if-no-files-found: error
+
+      # 上传 boot（只有勾选时才上传）
+      - name: 上传 boot 镜像
+        if: github.event.inputs.build_boot_image == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: twrp-boot-${{ github.event.inputs.device_tree_branch }}-${{ github.sha }}
+          path: twrp/out/target/product/*/boot.img
+          if-no-files-found: error
+
+      # 上传刷机包 zip（无论勾选哪个，只要 zip 存在就上传）
+      - name: 上传刷机包 (ZIP)
+        uses: actions/upload-artifact@v4
+        with:
+          name: twrp-flashable-${{ github.event.inputs.device_tree_branch }}-${{ github.sha }}
+          path: twrp/out/target/product/*/*.zip
+          if-no-files-found: warn
