@@ -61,7 +61,7 @@ on:
       build_target:
         description: '请选择要编译的镜像（三个只能选一个）'
         required: true
-        default: 'recovery'
+        default: 'vendor_boot'
         type: choice
         options:
           - recovery
