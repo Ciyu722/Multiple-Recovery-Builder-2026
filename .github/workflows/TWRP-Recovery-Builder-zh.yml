@@ -166,6 +166,7 @@ jobs:
       - name: 同步源码
         run: |
           cd twrp
+          export REPO_NO_REPO_UPDATE=1
           repo sync --force-sync --no-tags --no-clone-bundle -j$(nproc)
 
       # ========== 可选：应用展讯DRM补丁 ==========
