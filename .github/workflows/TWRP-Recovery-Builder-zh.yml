@@ -86,6 +86,13 @@ on:
         default: false
         type: boolean
 
+      # ===== 新增 Himax 补丁开关 =====
+      apply_himax_touch_patch:
+        description: '是否应用 Himax 触摸屏修复补丁（解决 Himax 触控不释放的问题）'
+        required: true
+        default: false
+        type: boolean
+
 jobs:
   build:
     runs-on: ubuntu-22.04
@@ -189,6 +196,27 @@ jobs:
           
           echo "✅ 展讯DRM补丁已应用"
 
+      # ========== 新增：应用 Himax 触摸补丁 ==========
+      - name: 应用 Himax 触摸屏修复补丁
+        if: github.event.inputs.apply_himax_touch_patch == 'true'
+        run: |
+          echo "📦 正在克隆 Himax 触摸补丁仓库..."
+          git clone https://github.com/rtyutechstudio/himax_twrp_sourcecode-patch.git /tmp/himax_patch
+          
+          TARGET_FILE="twrp/bootable/recovery/minuitwrp/events.cpp"
+          
+          if [ -f "$TARGET_FILE" ]; then
+            echo "🗑️ 备份原 events.cpp 为 events.cpp.bak..."
+            cp "$TARGET_FILE" "$TARGET_FILE.bak"
+          else
+            echo "⚠️ 警告：原 events.cpp 不存在，可能路径不正确，请检查设备树配置"
+          fi
+          
+          echo "📋 复制修复版 events.cpp ..."
+          cp /tmp/himax_patch/events.cpp "$TARGET_FILE"
+          
+          echo "✅ Himax 触摸补丁已应用"
+
       # 编译 recovery
       - name: 编译 recovery 镜像
         if: github.event.inputs.build_target == 'recovery'
@@ -275,22 +303,19 @@ jobs:
           echo "📦 Release 资产列表："
           ls -la release_assets/ || echo "没有找到任何文件"
 
-      # 新增：生成 Release 说明（包含设备名、日期、镜像、分支、commit、MD5）
+      # 生成 Release 说明
       - name: 生成 Release 说明
         if: github.event.inputs.upload_release == 'true'
         id: release_body
         run: |
-          # 提取设备代号（从 device_tree_path 最后一段）
           DEVICE_PATH="${{ github.event.inputs.device_tree_path }}"
           DEVICE_NAME=$(basename "$DEVICE_PATH")
           if [ -z "$DEVICE_NAME" ]; then
             DEVICE_NAME="Unknown"
           fi
           
-          # 当前日期 YYYYMMDD
           BUILD_DATE=$(date +%Y%m%d)
           
-          # 编译目标镜像名称
           case "${{ github.event.inputs.build_target }}" in
             recovery)
               TARGET_IMG="recovery.img"
@@ -303,20 +328,15 @@ jobs:
               ;;
           esac
           
-          # Build 分支（manifest 分支）
           BUILD_BRANCH="${{ steps.manifest_branch.outputs.branch }}"
-          
-          # 设备树仓库和分支
           DEVICE_REPO="${{ github.event.inputs.device_tree_repo_url }}"
           DEVICE_BRANCH="${{ github.event.inputs.device_tree_branch }}"
           
-          # 获取设备树最近一次 commit
           cd twrp/${{ github.event.inputs.device_tree_path }}
           COMMIT_HASH=$(git log -1 --format="%h")
           COMMIT_MSG=$(git log -1 --format="%s")
           COMMIT_INFO="${COMMIT_HASH} ${COMMIT_MSG}"
           
-          # 计算主要 IMG 文件的 MD5
           IMG_FILE="release_assets/${TARGET_IMG}"
           if [ -f "$IMG_FILE" ]; then
             MD5_SUM=$(md5sum "$IMG_FILE" | cut -d' ' -f1)
@@ -324,7 +344,6 @@ jobs:
             MD5_SUM="未找到文件"
           fi
           
-          # 生成 Release 说明正文
           cat <<EOF > release_body.txt
           Unofficial TWRP for ${DEVICE_NAME} device // ${BUILD_DATE}
           Target: ${TARGET_IMG}
@@ -343,7 +362,7 @@ jobs:
         with:
           tag_name: twrp-build-${{ github.run_id }}
           name: "TWRP Build ${{ github.run_id }}"
-          body_path: release_body.txt   # 使用生成的说明文件
+          body_path: release_body.txt
           draft: false
           prerelease: true
           files: release_assets/*
