@@ -39,29 +39,29 @@ on:
       device_tree_repo_url:
         description: '设备树 GitHub 仓库地址'
         required: true
-        default: 'https://gitee.com/cuoxianxu/android_xps06e-test3'
+        default: 'https://github.com/rtyutechstudio/android_device_oppo_a32-twrp'
         type: string
       device_tree_branch:
         description: '设备树分支'
         required: true
-        default: 'master'
+        default: 'main'
         type: string
       device_tree_path:
         description: '设备树在源码中的存放路径'
         required: true
-        default: 'device/Xiaodu/xps06e'
+        default: 'device/oppo/PDVM00'
         type: string
 
       lunch_target:
         description: 'lunch 目标'
         required: true
-        default: 'twrp_xps06e-eng'
+        default: 'twrp_PDVM00-eng'
         type: string
 
       build_target:
         description: '请选择要编译的镜像（三个只能选一个）'
         required: true
-        default: 'vendor_boot'
+        default: 'recovery'
         type: choice
         options:
           - recovery
@@ -83,7 +83,14 @@ on:
       apply_sprd_drm_patch:
         description: '是否应用展讯DRM显示修复补丁（解决展讯平台TWRP卡Logo无法显示UI的问题）'
         required: true
-        default: true
+        default: false
+        type: boolean
+
+      # ===== 新增 Himax 补丁开关 =====
+      apply_himax_touch_patch:
+        description: '是否应用 Himax 触摸屏修复补丁（解决 Himax 触控不释放的问题）'
+        required: true
+        default: false
         type: boolean
 
 jobs:
@@ -166,7 +173,6 @@ jobs:
       - name: 同步源码
         run: |
           cd twrp
-          export REPO_NO_REPO_UPDATE=1
           repo sync --force-sync --no-tags --no-clone-bundle -j$(nproc)
 
       # ========== 可选：应用展讯DRM补丁 ==========
@@ -189,6 +195,27 @@ jobs:
           cp /tmp/sprd_patch/graphics_drm.cpp.sprd_legacy_kms_fixed "$TARGET_FILE"
           
           echo "✅ 展讯DRM补丁已应用"
+
+      # ========== 新增：应用 Himax 触摸补丁 ==========
+      - name: 应用 Himax 触摸屏修复补丁
+        if: github.event.inputs.apply_himax_touch_patch == 'true'
+        run: |
+          echo "📦 正在克隆 Himax 触摸补丁仓库..."
+          git clone https://github.com/rtyutechstudio/himax_twrp_sourcecode-patch.git /tmp/himax_patch
+          
+          TARGET_FILE="twrp/bootable/recovery/minuitwrp/events.cpp"
+          
+          if [ -f "$TARGET_FILE" ]; then
+            echo "🗑️ 备份原 events.cpp 为 events.cpp.bak..."
+            cp "$TARGET_FILE" "$TARGET_FILE.bak"
+          else
+            echo "⚠️ 警告：原 events.cpp 不存在，可能路径不正确，请检查设备树配置"
+          fi
+          
+          echo "📋 复制修复版 events.cpp ..."
+          cp /tmp/himax_patch/events.cpp "$TARGET_FILE"
+          
+          echo "✅ Himax 触摸补丁已应用"
 
       # 编译 recovery
       - name: 编译 recovery 镜像
@@ -276,22 +303,19 @@ jobs:
           echo "📦 Release 资产列表："
           ls -la release_assets/ || echo "没有找到任何文件"
 
-      # 新增：生成 Release 说明（包含设备名、日期、镜像、分支、commit、MD5）
+      # 生成 Release 说明
       - name: 生成 Release 说明
         if: github.event.inputs.upload_release == 'true'
         id: release_body
         run: |
-          # 提取设备代号（从 device_tree_path 最后一段）
           DEVICE_PATH="${{ github.event.inputs.device_tree_path }}"
           DEVICE_NAME=$(basename "$DEVICE_PATH")
           if [ -z "$DEVICE_NAME" ]; then
             DEVICE_NAME="Unknown"
           fi
           
-          # 当前日期 YYYYMMDD
           BUILD_DATE=$(date +%Y%m%d)
           
-          # 编译目标镜像名称
           case "${{ github.event.inputs.build_target }}" in
             recovery)
               TARGET_IMG="recovery.img"
@@ -304,20 +328,15 @@ jobs:
               ;;
           esac
           
-          # Build 分支（manifest 分支）
           BUILD_BRANCH="${{ steps.manifest_branch.outputs.branch }}"
-          
-          # 设备树仓库和分支
           DEVICE_REPO="${{ github.event.inputs.device_tree_repo_url }}"
           DEVICE_BRANCH="${{ github.event.inputs.device_tree_branch }}"
           
-          # 获取设备树最近一次 commit
           cd twrp/${{ github.event.inputs.device_tree_path }}
           COMMIT_HASH=$(git log -1 --format="%h")
           COMMIT_MSG=$(git log -1 --format="%s")
           COMMIT_INFO="${COMMIT_HASH} ${COMMIT_MSG}"
           
-          # 计算主要 IMG 文件的 MD5
           IMG_FILE="release_assets/${TARGET_IMG}"
           if [ -f "$IMG_FILE" ]; then
             MD5_SUM=$(md5sum "$IMG_FILE" | cut -d' ' -f1)
@@ -325,7 +344,6 @@ jobs:
             MD5_SUM="未找到文件"
           fi
           
-          # 生成 Release 说明正文
           cat <<EOF > release_body.txt
           Unofficial TWRP for ${DEVICE_NAME} device // ${BUILD_DATE}
           Target: ${TARGET_IMG}
@@ -344,7 +362,7 @@ jobs:
         with:
           tag_name: twrp-build-${{ github.run_id }}
           name: "TWRP Build ${{ github.run_id }}"
-          body_path: release_body.txt   # 使用生成的说明文件
+          body_path: release_body.txt
           draft: false
           prerelease: true
           files: release_assets/*
