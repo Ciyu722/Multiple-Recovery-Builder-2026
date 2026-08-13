@@ -39,7 +39,7 @@ on:
       RECOVERY_INSTALLER:
         description: '是否生成刷机包 ZIP（含 recovery-installer）'
         required: true
-        default: true
+        default: false
         type: boolean
       RECOVERY_TAR:
         description: '是否生成 .tar 文件（三星设备使用）'
