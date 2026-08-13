@@ -16,15 +16,15 @@ on:
       DEVICE_TREE:
         description: '设备树仓库地址'
         required: true
-        default: 'https://github.com/kinguser981/android_device_xiaomi_marble-OFRP'
+        default: 'https://gitee.com/zhiyu722/eebbk-s6-device-tree.git'
       DEVICE_TREE_BRANCH:
         description: '设备树分支'
         required: true
-        default: 'fox_12.1'
+        default: 'master'
       DEVICE_PATH:
-        description: '设备树存放路径（例如 device/xiaomi/marble）'
+        description: '设备树存放路径'
         required: true
-        default: 'device/xiaomi/marble'
+        default: 'device/EEBBK/P20NH130'
 
       BUILD_TARGET:
         description: '构建目标镜像'
