@@ -6,7 +6,7 @@ on:
       MANIFEST_BRANCH:
         description: 'OrangeFox 分支'
         required: true
-        default: '12.1'
+        default: '14.1'
         type: choice
         options:
           - 14.1
@@ -20,7 +20,7 @@ on:
       DEVICE_TREE_BRANCH:
         description: '设备树分支'
         required: true
-        default: 'fox_14.1'
+        default: 'master'
       DEVICE_PATH:
         description: '设备树存放路径'
         required: true
