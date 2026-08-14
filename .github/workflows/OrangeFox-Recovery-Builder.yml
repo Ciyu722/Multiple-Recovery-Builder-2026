@@ -97,7 +97,6 @@ jobs:
         with:
           swap-size-gb: 24
 
-      # ====== 使用 /tmp 作为 ccache 根目录（始终可写） ======
       - name: 设置 ccache 缓存（使用 /tmp）
         uses: actions/cache@v4
         with:
@@ -213,7 +212,6 @@ jobs:
           cd ${GITHUB_WORKSPACE}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
           source build/envsetup.sh
           export ALLOW_MISSING_DEPENDENCIES=true
-          # 显式重新导出 ccache 环境（防止丢失）
           export CCACHE_DIR="/tmp/ccache"
           export CCACHE_TEMPDIR="/tmp/ccache-tmp"
           export USE_CCACHE=1
@@ -226,23 +224,49 @@ jobs:
           echo "📊 ccache 缓存使用情况如下："
           ccache -s | tee ccache_stats.txt
 
+      # ====== 重写定位产物目录（使用 ls 替代 find） ======
       - name: 定位产物目录
         id: locate
         run: |
           BASE="${GITHUB_WORKSPACE}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}"
-          POSSIBLE=(
-            "$BASE/out/target/product/${{ env.DEVICE_NAME }}"
-            "$BASE/out/target/product/${{ env.DEVICE_NAME }}/target/product/${{ env.DEVICE_NAME }}"
+          DEVICE="${{ env.DEVICE_NAME }}"
+          TARGET="${{ github.event.inputs.BUILD_TARGET }}"
+
+          # 候选输出目录
+          DIRS=(
+            "$BASE/out/target/product/$DEVICE"
+            "$BASE/out/target/product/$DEVICE/target/product/$DEVICE"
           )
-          for p in "${POSSIBLE[@]}"; do
-            if [ -d "$p" ] && [ -n "$(find "$p" -maxdepth 1 -name "OrangeFox*.img" -print -quit)" ]; then
-              echo "FILE_PATH=$p" >> $GITHUB_ENV
-              echo "✅ 找到产物目录: $p"
-              break
+
+          FOUND=""
+          for d in "${DIRS[@]}"; do
+            if [ -d "$d" ]; then
+              echo "📁 检查目录: $d"
+              cd "$d"
+              # 优先找 OrangeFox*.img
+              IMG=$(ls OrangeFox*.img 2>/dev/null | head -n1)
+              if [ -z "$IMG" ]; then
+                # 再找标准目标名
+                case "$TARGET" in
+                  recovery)   IMG=$(ls recovery.img 2>/dev/null | head -n1) ;;
+                  boot)       IMG=$(ls boot.img 2>/dev/null | head -n1) ;;
+                  vendorboot) IMG=$(ls vendor_boot.img 2>/dev/null | head -n1) ;;
+                esac
+              fi
+              if [ -n "$IMG" ]; then
+                echo "✅ 找到镜像: $IMG"
+                echo "FILE_PATH=$d" >> $GITHUB_ENV
+                FOUND=1
+                break
+              else
+                echo "⚠️ 该目录下没有匹配的 .img 文件，内容如下："
+                ls -la *.img 2>/dev/null || echo "（无 .img 文件）"
+              fi
             fi
           done
-          if [ -z "$FILE_PATH" ]; then
-            echo "❌ 未找到 OrangeFox*.img，请检查构建日志"
+
+          if [ -z "$FOUND" ]; then
+            echo "❌ 未找到任何镜像文件，请检查构建日志"
             exit 1
           fi
 
@@ -250,30 +274,43 @@ jobs:
         run: |
           cd ${{ env.FILE_PATH }}
           IMG=$(ls OrangeFox*.img 2>/dev/null | head -n1)
+          if [ -z "$IMG" ]; then
+            case "${{ github.event.inputs.BUILD_TARGET }}" in
+              recovery)   IMG=$(ls recovery.img 2>/dev/null | head -n1) ;;
+              boot)       IMG=$(ls boot.img 2>/dev/null | head -n1) ;;
+              vendorboot) IMG=$(ls vendor_boot.img 2>/dev/null | head -n1) ;;
+            esac
+          fi
           if [ -n "$IMG" ]; then
             MD5=$(md5sum "$IMG" | cut -d' ' -f1)
             echo "MD5_IMG=$MD5" >> $GITHUB_ENV
             echo "📦 镜像 MD5: $MD5"
+          else
+            echo "⚠️ 未找到镜像文件，跳过 MD5"
           fi
 
       - name: 重命名镜像
         run: |
           cd ${{ env.FILE_PATH }}
+          TARGET="${{ github.event.inputs.BUILD_TARGET }}"
           IMG=$(ls OrangeFox*.img 2>/dev/null | head -n1)
           if [ -z "$IMG" ]; then
-            echo "❌ 没有 OrangeFox*.img"
+            case "$TARGET" in
+              recovery)   IMG=$(ls recovery.img 2>/dev/null | head -n1) ;;
+              boot)       IMG=$(ls boot.img 2>/dev/null | head -n1) ;;
+              vendorboot) IMG=$(ls vendor_boot.img 2>/dev/null | head -n1) ;;
+            esac
+          fi
+          if [ -z "$IMG" ]; then
+            echo "❌ 没有找到任何镜像文件"
             exit 1
           fi
-          TARGET="${{ github.event.inputs.BUILD_TARGET }}"
-          case "$TARGET" in
-            recovery)  NEW_NAME="recovery.img" ;;
-            boot)      NEW_NAME="boot.img" ;;
-            vendorboot) NEW_NAME="vendor_boot.img" ;;
-            *)         NEW_NAME="orangefox.img" ;;
-          esac
-          mv "$IMG" "$NEW_NAME"
+          TARGET_IMG="${TARGET}.img"
+          if [ "$IMG" != "$TARGET_IMG" ]; then
+            mv "$IMG" "$TARGET_IMG"
+          fi
           echo "RECOVERY_TYPE=$TARGET" >> $GITHUB_ENV
-          echo "✅ 重命名为 $NEW_NAME"
+          echo "✅ 镜像已就绪: $TARGET_IMG"
 
       - name: 生成刷机包 ZIP
         if: github.event.inputs.RECOVERY_INSTALLER == 'true'
