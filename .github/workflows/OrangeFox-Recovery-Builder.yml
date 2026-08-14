@@ -6,7 +6,7 @@ on:
       MANIFEST_BRANCH:
         description: 'OrangeFox 分支'
         required: true
-        default: '12.1'
+        default: '14.1'
         type: choice
         options:
           - 14.1
@@ -20,7 +20,7 @@ on:
       DEVICE_TREE_BRANCH:
         description: '设备树分支'
         required: true
-        default: 'fox_14.1'
+        default: 'master'
       DEVICE_PATH:
         description: '设备树存放路径'
         required: true
@@ -39,7 +39,7 @@ on:
       RECOVERY_INSTALLER:
         description: '是否生成刷机包 ZIP（含 recovery-installer）'
         required: true
-        default: true
+        default: false
         type: boolean
       RECOVERY_TAR:
         description: '是否生成 .tar 文件（三星设备使用）'
