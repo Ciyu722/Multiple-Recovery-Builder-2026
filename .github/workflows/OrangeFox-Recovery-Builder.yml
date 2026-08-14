@@ -6,7 +6,7 @@ on:
       MANIFEST_BRANCH:
         description: 'OrangeFox 分支'
         required: true
-        default: '14.1'
+        default: '12.1'
         type: choice
         options:
           - 14.1
@@ -20,7 +20,7 @@ on:
       DEVICE_TREE_BRANCH:
         description: '设备树分支'
         required: true
-        default: 'master'
+        default: 'fox_14.1'
       DEVICE_PATH:
         description: '设备树存放路径'
         required: true
@@ -39,7 +39,7 @@ on:
       RECOVERY_INSTALLER:
         description: '是否生成刷机包 ZIP（含 recovery-installer）'
         required: true
-        default: false
+        default: true
         type: boolean
       RECOVERY_TAR:
         description: '是否生成 .tar 文件（三星设备使用）'
@@ -97,7 +97,6 @@ jobs:
         with:
           swap-size-gb: 24
 
-      # ========== ccache 缓存配置 ==========
       - name: 设置 ccache 缓存
         uses: actions/cache@v4
         with:
@@ -128,12 +127,27 @@ jobs:
           ./orangefox_sync.sh --branch ${{ github.event.inputs.MANIFEST_BRANCH }} \
             --path ${GITHUB_WORKSPACE}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
 
-      - name: 克隆设备树
+      # ===== 修改后的克隆设备树（含重试机制） =====
+      - name: 克隆设备树（含自动重试）
         run: |
           cd ${GITHUB_WORKSPACE}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
-          git clone ${{ github.event.inputs.DEVICE_TREE }} \
-            -b ${{ github.event.inputs.DEVICE_TREE_BRANCH }} \
-            ./${{ github.event.inputs.DEVICE_PATH }}
+          MAX_RETRIES=3
+          RETRY_DELAY=10
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "尝试克隆设备树 (尝试 $i/$MAX_RETRIES)..."
+            if git clone --depth=1 ${{ github.event.inputs.DEVICE_TREE }} -b ${{ github.event.inputs.DEVICE_TREE_BRANCH }} ./${{ github.event.inputs.DEVICE_PATH }}; then
+              echo "✅ 克隆成功"
+              break
+            else
+              if [ $i -lt $MAX_RETRIES ]; then
+                echo "⚠️ 克隆失败，等待 ${RETRY_DELAY} 秒后重试..."
+                sleep $RETRY_DELAY
+              else
+                echo "❌ 克隆失败，已重试 $MAX_RETRIES 次，退出"
+                exit 1
+              fi
+            fi
+          done
           cd ${{ github.event.inputs.DEVICE_PATH }}
           echo "COMMIT_ID=$(git rev-parse HEAD)" >> $GITHUB_ENV
 
@@ -197,14 +211,12 @@ jobs:
           export ALLOW_MISSING_DEPENDENCIES=true
           eval ${{ env.BUILD_CMD }}
 
-      # ========== ccache 统计输出 ==========
       - name: 输出 ccache 统计信息
         run: |
           ccache -s
           echo "📊 ccache 缓存使用情况如下："
           ccache -s | tee ccache_stats.txt
 
-      # ========== ✅ 修复关键点：定位产物目录 ==========
       - name: 定位产物目录
         id: locate
         run: |
@@ -213,19 +225,14 @@ jobs:
             "$BASE/out/target/product/${{ env.DEVICE_NAME }}"
             "$BASE/out/target/product/${{ env.DEVICE_NAME }}/target/product/${{ env.DEVICE_NAME }}"
           )
-          # 引入本地变量 FOUND_PATH
-          FOUND_PATH=""
           for p in "${POSSIBLE[@]}"; do
             if [ -d "$p" ] && [ -n "$(find "$p" -maxdepth 1 -name "OrangeFox*.img" -print -quit)" ]; then
-              FOUND_PATH="$p"
-              # 写入环境变量（供后续步骤使用）
               echo "FILE_PATH=$p" >> $GITHUB_ENV
               echo "✅ 找到产物目录: $p"
               break
             fi
           done
-          # 这里使用 FOUND_PATH 本地变量来判断是否找到，避开 Actions 同一步骤无法读取刚写入的 $FILE_PATH 的陷阱
-          if [ -z "$FOUND_PATH" ]; then
+          if [ -z "$FILE_PATH" ]; then
             echo "❌ 未找到 OrangeFox*.img，请检查构建日志"
             exit 1
           fi
