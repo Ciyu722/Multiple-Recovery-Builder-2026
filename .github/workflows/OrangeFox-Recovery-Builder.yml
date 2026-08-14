@@ -97,26 +97,30 @@ jobs:
         with:
           swap-size-gb: 24
 
-      - name: 设置 ccache 缓存
+      # ====== 修复 ccache 只读问题：使用工作区目录 ======
+      - name: 设置 ccache 缓存（工作区目录）
         uses: actions/cache@v4
         with:
-          path: ~/.ccache
+          path: ${{ github.workspace }}/.ccache
           key: ${{ runner.os }}-ccache-${{ github.event.inputs.MANIFEST_BRANCH }}-${{ github.event.inputs.DEVICE_PATH }}-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-ccache-${{ github.event.inputs.MANIFEST_BRANCH }}-${{ github.event.inputs.DEVICE_PATH }}-
             ${{ runner.os }}-ccache-${{ github.event.inputs.MANIFEST_BRANCH }}-
             ${{ runner.os }}-ccache-
 
-      - name: 配置 ccache
+      - name: 配置 ccache（使用可写目录）
         run: |
-          mkdir -p ~/.ccache
+          CCACHE_DIR="${{ github.workspace }}/.ccache"
+          CCACHE_TEMP="/tmp/ccache-tmp"
+          mkdir -p "$CCACHE_DIR" "$CCACHE_TEMP"
           ccache -M 20G
-          echo "CCACHE_DIR=/home/runner/.ccache" >> $GITHUB_ENV
+          echo "CCACHE_DIR=$CCACHE_DIR" >> $GITHUB_ENV
           echo "CCACHE_EXEC=/usr/bin/ccache" >> $GITHUB_ENV
           echo "USE_CCACHE=1" >> $GITHUB_ENV
           echo "CCACHE_COMPRESS=1" >> $GITHUB_ENV
+          echo "CCACHE_TEMPDIR=$CCACHE_TEMP" >> $GITHUB_ENV
           echo "CCACHE_SLOPPINESS=time_macros,include_file_mtime,file_macro" >> $GITHUB_ENV
-          echo "✅ ccache 已配置，最大缓存 20GB"
+          echo "✅ ccache 已配置，缓存目录: $CCACHE_DIR，临时目录: $CCACHE_TEMP"
 
       - name: 同步 OrangeFox 源码
         run: |
@@ -127,7 +131,6 @@ jobs:
           ./orangefox_sync.sh --branch ${{ github.event.inputs.MANIFEST_BRANCH }} \
             --path ${GITHUB_WORKSPACE}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
 
-      # ===== 修改后的克隆设备树（含重试机制） =====
       - name: 克隆设备树（含自动重试）
         run: |
           cd ${GITHUB_WORKSPACE}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
