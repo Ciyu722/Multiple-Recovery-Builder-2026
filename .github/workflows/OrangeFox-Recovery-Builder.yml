@@ -97,30 +97,29 @@ jobs:
         with:
           swap-size-gb: 24
 
-      # ====== 修复 ccache 只读问题：使用工作区目录 ======
-      - name: 设置 ccache 缓存（工作区目录）
+      # ====== 使用 runner.temp 作为 ccache 根目录（始终可写） ======
+      - name: 设置 ccache 缓存（使用 runner.temp）
         uses: actions/cache@v4
         with:
-          path: ${{ github.workspace }}/.ccache
+          path: ${{ runner.temp }}/ccache
           key: ${{ runner.os }}-ccache-${{ github.event.inputs.MANIFEST_BRANCH }}-${{ github.event.inputs.DEVICE_PATH }}-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-ccache-${{ github.event.inputs.MANIFEST_BRANCH }}-${{ github.event.inputs.DEVICE_PATH }}-
             ${{ runner.os }}-ccache-${{ github.event.inputs.MANIFEST_BRANCH }}-
             ${{ runner.os }}-ccache-
 
-      - name: 配置 ccache（使用可写目录）
+      - name: 配置 ccache（使用 runner.temp）
         run: |
-          CCACHE_DIR="${{ github.workspace }}/.ccache"
-          CCACHE_TEMP="/tmp/ccache-tmp"
-          mkdir -p "$CCACHE_DIR" "$CCACHE_TEMP"
+          CCACHE_DIR="${{ runner.temp }}/ccache"
+          mkdir -p "$CCACHE_DIR"
           ccache -M 20G
           echo "CCACHE_DIR=$CCACHE_DIR" >> $GITHUB_ENV
           echo "CCACHE_EXEC=/usr/bin/ccache" >> $GITHUB_ENV
           echo "USE_CCACHE=1" >> $GITHUB_ENV
           echo "CCACHE_COMPRESS=1" >> $GITHUB_ENV
-          echo "CCACHE_TEMPDIR=$CCACHE_TEMP" >> $GITHUB_ENV
+          # 不再单独设置 CCACHE_TEMPDIR，让 ccache 自动在 $CCACHE_DIR 下创建 tmp
           echo "CCACHE_SLOPPINESS=time_macros,include_file_mtime,file_macro" >> $GITHUB_ENV
-          echo "✅ ccache 已配置，缓存目录: $CCACHE_DIR，临时目录: $CCACHE_TEMP"
+          echo "✅ ccache 已配置，缓存目录: $CCACHE_DIR"
 
       - name: 同步 OrangeFox 源码
         run: |
@@ -212,6 +211,10 @@ jobs:
           cd ${GITHUB_WORKSPACE}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
           source build/envsetup.sh
           export ALLOW_MISSING_DEPENDENCIES=true
+          # 显式再次导出 ccache 环境，确保子进程继承
+          export CCACHE_DIR="${{ runner.temp }}/ccache"
+          export USE_CCACHE=1
+          export CCACHE_COMPRESS=1
           eval ${{ env.BUILD_CMD }}
 
       - name: 输出 ccache 统计信息
